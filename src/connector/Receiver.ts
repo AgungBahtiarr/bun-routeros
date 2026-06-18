@@ -1,4 +1,3 @@
-import { Socket } from 'net';
 import * as iconv from 'iconv-lite';
 import debug from 'debug';
 import { RosException } from '../RosException';
@@ -29,7 +28,12 @@ export class Receiver {
     /**
      * The socket which connects to the routerboard
      */
-    private socket: Socket;
+    private socket: any;
+
+    /**
+     * Callback when a fatal error occurs
+     */
+    private onFatalCallback: () => void;
 
     /**
      * The registered tags to answer data to
@@ -86,9 +90,11 @@ export class Receiver {
      * to the according listener.
      *
      * @param socket
+     * @param onFatal
      */
-    constructor(socket: Socket) {
+    constructor(socket: any, onFatal?: () => void) {
         this.socket = socket;
+        this.onFatalCallback = onFatal;
     }
 
     /**
@@ -256,7 +262,7 @@ export class Receiver {
                     const line = this.sentencePipe.shift();
 
                     if (!line.hadMore && this.currentReply === '!fatal') {
-                        this.socket.emit('fatal');
+                        if (this.onFatalCallback) this.onFatalCallback();
                         return;
                     }
 

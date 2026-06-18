@@ -1,4 +1,4 @@
-const RouterOSAPI = require('../dist').RouterOSAPI;
+const RouterOSAPI = require('../src').RouterOSAPI;
 const chai = require('chai');
 const config = require('./config');
 
@@ -8,7 +8,7 @@ const expect = chai.expect;
 let conn;
 
 describe('RosApiOperations', () => {
-    before('should stablish connection and save api object', (done) => {
+    beforeAll('should stablish connection and save api object', (done) => {
         conn = new RouterOSAPI({
             host: config.host,
             user: config.user,
@@ -112,8 +112,6 @@ describe('RosApiOperations', () => {
     });
 
     it('should stop streaming with writeStream after 5 seconds', function (done) {
-        this.timeout(7000);
-
         const chann = conn.writeStream('/ip/address/listen');
 
         let gotDone = false;
@@ -143,11 +141,9 @@ describe('RosApiOperations', () => {
         setTimeout(() => {
             chann.close();
         }, 5000);
-    });
+    }, 7000);
 
-    after('should disconnect', (done) => {
-        this.timeout = 5000;
-
+    afterAll('should disconnect', (done) => {
         conn.close()
             .then(() => {
                 done();

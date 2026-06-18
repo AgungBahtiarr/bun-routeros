@@ -1,6 +1,4 @@
 import { EventEmitter } from 'events';
-import { Socket } from 'net';
-import * as tls from 'tls';
 import { Receiver } from './Receiver';
 import { Transmitter } from './Transmitter';
 import { RosException } from '../RosException';
@@ -37,7 +35,7 @@ export class Connector extends EventEmitter {
     /**
      * The socket of the connection
      */
-    private socket: Socket;
+    private socket: any;
 
     /**
      * The transmitter object to write commands
@@ -72,7 +70,7 @@ export class Connector extends EventEmitter {
     /**
      * TLS data
      */
-    private tls: tls.ConnectionOptions;
+    private tls: any;
 
     /**
      * Constructor which receive the options of the connection
@@ -109,38 +107,50 @@ export class Connector extends EventEmitter {
                         this.onError(err);
                     }
                 }, this.timeout * 1000);
-                if (this.tls) {
-                    this.socket = tls.connect(
-                        this.port,
-                        this.host,
-                        this.tls,
-                        this.onConnect.bind(this),
-                    );
-                    this.transmitter = new Transmitter(this.socket);
-                    this.receiver = new Receiver(this.socket);
-                    this.socket.on('data', this.onData.bind(this));
-                    this.socket.on('tlsClientError', this.onError.bind(this));
-                    this.socket.once('end', this.onEnd.bind(this));
-                    this.socket.once('timeout', this.onTimeout.bind(this));
-                    this.socket.once('fatal', this.onEnd.bind(this));
-                    this.socket.on('error', this.onError.bind(this));
-                    this.socket.setTimeout(this.timeout * 1000);
-                    this.socket.setKeepAlive(true);
-                } else {
-                    this.socket = new Socket();
-                    this.transmitter = new Transmitter(this.socket);
-                    this.receiver = new Receiver(this.socket);
-                    this.socket.once('connect', this.onConnect.bind(this));
-                    this.socket.once('end', this.onEnd.bind(this));
-                    this.socket.once('timeout', this.onTimeout.bind(this));
-                    this.socket.once('fatal', this.onEnd.bind(this));
-                    this.socket.on('error', this.onError.bind(this));
-                    this.socket.on('data', this.onData.bind(this));
-                    this.socket.setTimeout(this.timeout * 1000);
-                    this.socket.setKeepAlive(true);
 
-                    this.socket.connect(this.port, this.host);
+                const socketOptions: any = {
+                    hostname: this.host,
+                    port: this.port,
+                    socket: {
+                        open: (socket: any) => {
+                            socket.writable = true;
+                            this.socket = socket;
+                            this.transmitter = new Transmitter(this.socket);
+                            this.receiver = new Receiver(this.socket, () => this.onEnd());
+                            this.onConnect();
+                        },
+                        data: (socket: any, data: Buffer) => {
+                            this.onData(data);
+                        },
+                        close: (socket: any) => {
+                            if (this.socket) this.socket.writable = false;
+                            this.onEnd();
+                        },
+                        connectError: (socket: any, error: any) => {
+                            if (this.socket) this.socket.writable = false;
+                            this.onError(error);
+                        },
+                        error: (socket: any, error: any) => {
+                            if (this.socket) this.socket.writable = false;
+                            this.onError(error);
+                        },
+                        end: (socket: any) => {
+                            if (this.socket) this.socket.writable = false;
+                            this.onEnd();
+                        },
+                        timeout: (socket: any) => {
+                            this.onTimeout();
+                        }
+                    }
+                };
+
+                if (this.tls) {
+                    socketOptions.tls = this.tls;
                 }
+
+                (globalThis as any).Bun.connect(socketOptions).catch((err: any) => {
+                    this.onError(err);
+                });
             }
         }
         return this;
@@ -184,7 +194,7 @@ export class Connector extends EventEmitter {
     public close(): void {
         if (!this.closing) {
             this.closing = true;
-            this.socket.end();
+            if (this.socket) this.socket.end();
         }
     }
 
@@ -198,7 +208,11 @@ export class Connector extends EventEmitter {
             clearTimeout(this.connectTimer);
             this.connectTimer = null;
         }
-        this.socket.destroy();
+        if (this.socket) {
+            this.socket.close();
+        }
+        this.connecting = false;
+        this.connected = false;
         this.removeAllListeners();
     }
 
@@ -217,6 +231,9 @@ export class Connector extends EventEmitter {
         }
         this.connecting = false;
         this.connected = true;
+        if (this.socket && typeof this.socket.timeout === 'function') {
+            this.socket.timeout(this.timeout * 1000);
+        }
         info('Connected on %s', this.host);
         this.transmitter.runPool();
         this.emit('connected', this);
@@ -242,6 +259,12 @@ export class Connector extends EventEmitter {
      * @returns {function}
      */
     private onError(err: any): void {
+        if (!this.connecting && !this.connected) {
+            return;
+        }
+        this.connecting = false;
+        this.connected = false;
+
         err = new RosException(err.code || err.errno, err);
         error(
             'Problem while trying to connect to %s. Error: %s',

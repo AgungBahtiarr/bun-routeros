@@ -1,5 +1,5 @@
-const { Receiver } = require('../dist/connector/Receiver');
-const { Transmitter } = require('../dist/connector/Transmitter');
+const { Receiver } = require('../src/connector/Receiver');
+const { Transmitter } = require('../src/connector/Transmitter');
 const { expect } = require('chai');
 
 let rec, trans;

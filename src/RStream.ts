@@ -1,7 +1,6 @@
 import { EventEmitter } from 'events';
 import { Channel } from './Channel';
 import { RosException } from './RosException';
-import { setTimeout, clearTimeout } from 'timers';
 import { debounce } from './utils';
 
 /**

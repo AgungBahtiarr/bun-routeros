@@ -1,4 +1,3 @@
-import { Socket } from 'net';
 import * as iconv from 'iconv-lite';
 import debug from 'debug';
 
@@ -13,7 +12,7 @@ export class Transmitter {
     /**
      * The socket which connects to the routerboard
      */
-    private socket: Socket;
+    private socket: any;
 
     /**
      * Pool of data to be sent after the socket connects
@@ -25,7 +24,7 @@ export class Transmitter {
      *
      * @param socket
      */
-    constructor(socket: Socket) {
+    constructor(socket: any) {
         this.socket = socket;
     }
 

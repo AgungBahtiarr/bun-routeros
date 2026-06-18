@@ -6,7 +6,6 @@ import { IRosOptions } from './IRosOptions';
 import { RStream } from './RStream';
 import * as crypto from 'crypto';
 import debug from 'debug';
-import { clearTimeout } from 'timers';
 import { EventEmitter } from 'events';
 import { IRosGenericResponse } from './IRosGenericResponse';
 

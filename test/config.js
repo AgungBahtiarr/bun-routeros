@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 function env(key) {
     return process.env[key] || null;
 }
