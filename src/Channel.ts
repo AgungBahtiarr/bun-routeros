@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { Connector } from './connector/Connector';
 import { RosException } from './RosException';
-import * as debug from 'debug';
+import debug from 'debug';
 import { IRosGenericResponse } from './IRosGenericResponse';
 
 const info = debug('routeros-api:channel:info');
@@ -156,6 +156,8 @@ export class Channel extends EventEmitter {
         switch (reply) {
             case '!re':
                 if (this.streaming) this.emit('stream', parsed);
+                break;
+            case '!empty':
                 break;
             case '!done':
                 if (!this.trapped) this.emit('done', this.data);

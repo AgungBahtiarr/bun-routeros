@@ -4,7 +4,7 @@ import * as tls from 'tls';
 import { Receiver } from './Receiver';
 import { Transmitter } from './Transmitter';
 import { RosException } from '../RosException';
-import * as debug from 'debug';
+import debug from 'debug';
 
 const info = debug('routeros-api:connector:connector:info');
 const error = debug('routeros-api:connector:connector:error');
@@ -65,6 +65,11 @@ export class Connector extends EventEmitter {
     private closing: boolean = false;
 
     /**
+     * Connect timer to abort connection if it takes too long
+     */
+    private connectTimer: NodeJS.Timeout;
+
+    /**
      * TLS data
      */
     private tls: tls.ConnectionOptions;
@@ -96,6 +101,14 @@ export class Connector extends EventEmitter {
         if (!this.connected) {
             if (!this.connecting) {
                 this.connecting = true;
+                this.connectTimer = setTimeout(() => {
+                    if (this.connecting) {
+                        const err = new Error('connect SOCKTMOUT');
+                        err['code'] = 'SOCKTMOUT';
+                        err['errno'] = 'SOCKTMOUT';
+                        this.onError(err);
+                    }
+                }, this.timeout * 1000);
                 if (this.tls) {
                     this.socket = tls.connect(
                         this.port,
@@ -181,6 +194,10 @@ export class Connector extends EventEmitter {
      * this class itself must be recreated
      */
     public destroy(): void {
+        if (this.connectTimer) {
+            clearTimeout(this.connectTimer);
+            this.connectTimer = null;
+        }
         this.socket.destroy();
         this.removeAllListeners();
     }
@@ -194,6 +211,10 @@ export class Connector extends EventEmitter {
      * @returns {function}
      */
     private onConnect(): void {
+        if (this.connectTimer) {
+            clearTimeout(this.connectTimer);
+            this.connectTimer = null;
+        }
         this.connecting = false;
         this.connected = true;
         info('Connected on %s', this.host);
@@ -221,7 +242,7 @@ export class Connector extends EventEmitter {
      * @returns {function}
      */
     private onError(err: any): void {
-        err = new RosException(err.errno, err);
+        err = new RosException(err.code || err.errno, err);
         error(
             'Problem while trying to connect to %s. Error: %s',
             this.host,

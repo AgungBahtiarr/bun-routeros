@@ -1,6 +1,6 @@
 import { Socket } from 'net';
 import * as iconv from 'iconv-lite';
-import * as debug from 'debug';
+import debug from 'debug';
 import { RosException } from '../RosException';
 
 const info = debug('routeros-api:connector:receiver:info');

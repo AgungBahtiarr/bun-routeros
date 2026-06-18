@@ -5,7 +5,7 @@ import { RosException } from './RosException';
 import { IRosOptions } from './IRosOptions';
 import { RStream } from './RStream';
 import * as crypto from 'crypto';
-import * as debug from 'debug';
+import debug from 'debug';
 import { clearTimeout } from 'timers';
 import { EventEmitter } from 'events';
 import { IRosGenericResponse } from './IRosGenericResponse';
@@ -75,7 +75,7 @@ export class RouterOSAPI extends EventEmitter {
     /**
      * The function timeout that will keep the connection alive
      */
-    private keptaliveby: NodeJS.Timer;
+    private keptaliveby: NodeJS.Timeout;
 
     /**
      * Counter for channels open
@@ -92,7 +92,7 @@ export class RouterOSAPI extends EventEmitter {
      * Store the timeout when holding the connection
      * when waiting for a channel response
      */
-    private connectionHoldInterval: NodeJS.Timer;
+    private connectionHoldInterval: NodeJS.Timeout;
 
     private registeredStreams: RStream[] = [];
 

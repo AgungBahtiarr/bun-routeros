@@ -8,5 +8,5 @@ module.exports = {
     host: env('HOST'),
     user: env('USERNAME'),
     password: env('PASSWORD'),
-    sslPort: env('SSL_PORT'),
+    sslPort: env('SSL_PORT') || 8729,
 };

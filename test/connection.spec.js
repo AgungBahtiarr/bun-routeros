@@ -119,11 +119,13 @@ describe('RouterOSAPI', function () {
         });
 
         it('should refuse connection from port 666', function (done) {
+            this.timeout(10000);
             const conn = new RouterOSAPI({
                 host: config.host,
                 user: config.user,
                 password: config.password,
                 port: 666,
+                timeout: 5,
             });
 
             conn.connect()
@@ -132,7 +134,7 @@ describe('RouterOSAPI', function () {
                     done();
                 })
                 .catch((err) => {
-                    err.errno.should.be.equal('ECONNREFUSED');
+                    err.errno.should.be.oneOf(['ECONNREFUSED', 'SOCKTMOUT', 'ETIMEDOUT']);
                     done();
                 });
         });

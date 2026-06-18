@@ -87,7 +87,7 @@ export class RStream extends EventEmitter {
     /**
      * Waiting timeout before sending received section packets
      */
-    private sectionPacketSendingTimeout: NodeJS.Timer;
+    private sectionPacketSendingTimeout: NodeJS.Timeout;
 
     /**
      * Constructor, it also starts the streaming after construction

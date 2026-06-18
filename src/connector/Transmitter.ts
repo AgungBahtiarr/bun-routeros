@@ -1,6 +1,6 @@
 import { Socket } from 'net';
 import * as iconv from 'iconv-lite';
-import * as debug from 'debug';
+import debug from 'debug';
 
 const info = debug('routeros-api:connector:transmitter:info');
 const error = debug('routeros-api:connector:transmitter:error');
