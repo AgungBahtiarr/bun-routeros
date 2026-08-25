@@ -1,6 +1,6 @@
 {
     "name": "bun-routeros",
-    "version": "1.6.9",
+    "version": "1.0.0",
     "description": "Mikrotik Routerboard RouterOS API for Bun",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
