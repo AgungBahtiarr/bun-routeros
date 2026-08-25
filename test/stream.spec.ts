@@ -1,18 +1,17 @@
-const { RStream } = require('../src/RStream');
-const { Channel } = require('../src/Channel');
-const { expect } = require('chai');
+import { describe, it, expect } from 'bun:test';
+import { RStream } from '../src/RStream';
+import { Channel } from '../src/Channel';
 
 describe('RStream AsyncIterator', () => {
     it('should support consuming streams via for await loop', async () => {
-        let streamListener = null;
         let cancelCalled = false;
-        const listeners = new Map();
+        const listeners = new Map<string, (packet: string[]) => void>();
 
-        const fakeConnector = {
-            read: (tag, cb) => {
+        const fakeConnector: any = {
+            read: (tag: string, cb: any) => {
                 listeners.set(tag, cb);
             },
-            write: (params) => {
+            write: (params: string[]) => {
                 if (params[0] === '/cancel') {
                     cancelCalled = true;
                     // Extract tag of the cancel request
@@ -26,7 +25,7 @@ describe('RStream AsyncIterator', () => {
                     }
                 }
             },
-            stopRead: (tag) => {
+            stopRead: (tag: string) => {
                 listeners.delete(tag);
             },
         };
@@ -50,10 +49,10 @@ describe('RStream AsyncIterator', () => {
             }
         }
 
-        expect(packets.length).to.equal(3);
-        expect(packets[0]).to.deep.equal({ rx: '1000', tx: '2000' });
-        expect(packets[1]).to.deep.equal({ rx: '3000', tx: '4000' });
-        expect(packets[2]).to.deep.equal({ rx: '5000', tx: '6000' });
-        expect(cancelCalled).to.equal(true);
+        expect(packets.length).toBe(3);
+        expect(packets[0]).toEqual({ rx: '1000', tx: '2000' });
+        expect(packets[1]).toEqual({ rx: '3000', tx: '4000' });
+        expect(packets[2]).toEqual({ rx: '5000', tx: '6000' });
+        expect(cancelCalled).toBe(true);
     });
 });

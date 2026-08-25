@@ -1,8 +1,8 @@
-const { Receiver } = require('../src/connector/Receiver');
-const { Transmitter } = require('../src/connector/Transmitter');
-const { expect } = require('chai');
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { Receiver } from '../src/connector/Receiver';
+import { Transmitter } from '../src/connector/Transmitter';
 
-let rec, trans;
+let rec: Receiver, trans: Transmitter;
 
 describe('Receiver', () => {
     beforeEach(() => {
@@ -20,9 +20,9 @@ describe('Receiver', () => {
         const buff = Buffer.concat(segments);
 
         rec.read('foobar', (data) => {
-            expect(data.length).to.be.equal(2);
-            expect(data[0]).to.be.equal('!re');
-            expect(data[1]).to.be.equal('datahere!');
+            expect(data.length).toBe(2);
+            expect(data[0]).toBe('!re');
+            expect(data[1]).toBe('datahere!');
 
             done();
         });
@@ -38,13 +38,13 @@ describe('Receiver', () => {
         segments.push(Buffer.from([0x00]));
 
         const buff = Buffer.concat(segments);
-        const payload_a = buff.slice(0, 10);
-        const payload_b = buff.slice(10);
+        const payload_a = buff.subarray(0, 10);
+        const payload_b = buff.subarray(10);
 
         rec.read('foobar', (data) => {
-            expect(data.length).to.be.equal(2);
-            expect(data[0]).to.be.equal('!re');
-            expect(data[1]).to.be.equal('datahere!');
+            expect(data.length).toBe(2);
+            expect(data[0]).toBe('!re');
+            expect(data[1]).toBe('datahere!');
 
             done();
         });
@@ -61,21 +61,21 @@ describe('Receiver', () => {
         segments.push(trans.encodeString('.tag=foobar'));
         let buff = Buffer.concat(segments);
 
-        const payload_a = buff.slice(0, 10);
+        const payload_a = buff.subarray(0, 10);
         const remaining_len = buff.length - payload_a.length;
 
         segments = [];
         segments.push(trans.encodeString(large_data));
         segments.push(Buffer.from([0x00]));
 
-        buff = Buffer.concat([buff.slice(10), ...segments]);
-        const payload_b = buff.slice(0, remaining_len + 1);
-        const payload_c = buff.slice(remaining_len + 1);
+        buff = Buffer.concat([buff.subarray(10), ...segments]);
+        const payload_b = buff.subarray(0, remaining_len + 1);
+        const payload_c = buff.subarray(remaining_len + 1);
 
         rec.read('foobar', (data) => {
-            expect(data.length).to.be.equal(2);
-            expect(data[0]).to.be.equal('!re');
-            expect(data[1]).to.be.equal(large_data);
+            expect(data.length).toBe(2);
+            expect(data[0]).toBe('!re');
+            expect(data[1]).toBe(large_data);
 
             done();
         });
@@ -100,9 +100,9 @@ describe('Receiver', () => {
         const buff = Buffer.concat(segments);
 
         utf8Rec.read('utf8tag', (data) => {
-            expect(data.length).to.be.equal(2);
-            expect(data[0]).to.be.equal('!re');
-            expect(data[1]).to.be.equal(`=comment=${unicodeData}`);
+            expect(data.length).toBe(2);
+            expect(data[0]).toBe('!re');
+            expect(data[1]).toBe(`=comment=${unicodeData}`);
             done();
         });
 

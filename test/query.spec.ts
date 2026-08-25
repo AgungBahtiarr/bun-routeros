@@ -1,10 +1,10 @@
-const { RosQuery, rosQuery } = require('../src/query');
-const { expect } = require('chai');
+import { describe, it, expect } from 'bun:test';
+import { RosQuery, rosQuery } from '../src/query';
 
 describe('RosQuery', () => {
     it('should build a simple command without params', () => {
         const query = rosQuery('/ip/address/print').build();
-        expect(query).to.deep.equal(['/ip/address/print']);
+        expect(query).toEqual(['/ip/address/print']);
     });
 
     it('should build assignment properties', () => {
@@ -13,7 +13,7 @@ describe('RosQuery', () => {
             .prop('address', '192.168.88.1/24')
             .build();
 
-        expect(query).to.deep.equal([
+        expect(query).toEqual([
             '/ip/address/add',
             '=interface=ether1',
             '=address=192.168.88.1/24',
@@ -29,7 +29,7 @@ describe('RosQuery', () => {
             })
             .build();
 
-        expect(query).to.deep.equal([
+        expect(query).toEqual([
             '/ip/address/add',
             '=interface=ether2',
             '=address=10.0.0.1/24',
@@ -45,7 +45,7 @@ describe('RosQuery', () => {
             .proplist('name', 'mac-address', 'running')
             .build();
 
-        expect(query).to.deep.equal([
+        expect(query).toEqual([
             '/interface/print',
             '?type=ether',
             '?disabled=yes',
@@ -65,7 +65,7 @@ describe('RosQuery', () => {
             .not()
             .build();
 
-        expect(query).to.deep.equal([
+        expect(query).toEqual([
             '/queue/simple/print',
             '?>max-limit=1000',
             '?<priority=8',

@@ -24,12 +24,9 @@
     "author": "Aluisio Rodrigues Amaral",
     "license": "MIT",
     "devDependencies": {
-        "@types/chai": "^5.2.3",
         "@types/debug": "^4.1.13",
         "@types/iconv-lite": "^0.0.1",
         "@types/node": "^25.9.5",
-        "chai": "^6.2.2",
-        "mocha": "^11.8.0",
         "prettier": "^3.9.6",
         "typescript": "^6.0.3"
     },
