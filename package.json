@@ -2,8 +2,14 @@
     "name": "bun-routeros",
     "version": "1.6.9",
     "description": "Mikrotik Routerboard RouterOS API for Bun",
-    "main": "./dist/index",
-    "types": "./dist/index",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+    ],
     "scripts": {
         "prepublishOnly": "bun build.ts",
         "test": "bun test",
