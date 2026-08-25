@@ -166,11 +166,9 @@ export class Connector extends EventEmitter {
                     socketOptions.tls = this.tls;
                 }
 
-                (globalThis as any).Bun.connect(socketOptions).catch(
-                    (err: any) => {
-                        this.onError(err);
-                    },
-                );
+                Bun.connect(socketOptions).catch((err: any) => {
+                    this.onError(err);
+                });
             }
         }
         return this;

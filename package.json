@@ -24,6 +24,7 @@
     "author": "Aluisio Rodrigues Amaral",
     "license": "MIT",
     "devDependencies": {
+        "@types/bun": "^1.4.0",
         "@types/debug": "^4.1.13",
         "@types/iconv-lite": "^0.0.1",
         "@types/node": "^25.9.5",

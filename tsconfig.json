@@ -8,7 +8,7 @@
         "inlineSourceMap": true,
         "declaration": true,
         "esModuleInterop": true,
-        "types": ["node"],
+        "types": ["node", "bun"],
         "strict": true
     },
     "include": ["src/**/*.ts"],
