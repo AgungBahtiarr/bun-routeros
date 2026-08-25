@@ -206,7 +206,8 @@ describe('RouterOSAPI', function () {
                 });
         });
 
-        it('should connect via SSL normally on ' + config.host, (done) => {
+        const itSSL = process.env.SSL_PORT ? it : it.skip;
+        itSSL('should connect via SSL normally on ' + config.host, (done) => {
             const conn = new RouterOSAPI({
                 host: config.host,
                 user: config.user,

@@ -9,11 +9,12 @@ This is a Mikrotik Routerboard API written in TypeScript and optimized for Bun, 
 -   Built on Bun's native TCP/TLS socket client (`Bun.connect`).
 -   Connection and reconnection without destroying the object.
 -   Change host, username, and other parameters of the object without recreating it.
--   Based on promises.
--   You can choose to keep the connection alive if it gets idle.
--   Every command is async, but can be synced using promises.
--   Can pause, resume, and stop streams (like what you get from `/tool/torch`).
--   Support for languages with accents, keeping it consistent throughout WinBox and API.
+-   Based on promises and modern `async`/`await`.
+-   **AsyncIterator & `for await`** support for consuming data streams fluently.
+-   **Fluent Query Builder (`RosQuery` / `rosQuery`)** for easy MikroTik API command and filter generation.
+-   **Configurable encoding (`utf-8` or `win1252`)** for seamless multi-language compatibility.
+-   **High-performance parsing & zero-recursion queue** optimized for massive data packets.
+-   TypeScript **strict mode** with full Generic Type support (`conn.write<T>()`).
 -   Compatible with RouterOS v7.18+ (handles `!empty` replies gracefully).
 
 # Installing
@@ -27,10 +28,70 @@ bun add bun-routeros
 Importing in TypeScript:
 
 ```typescript
-import { RouterOSAPI } from 'bun-routeros';
+import { RouterOSAPI, rosQuery, RosQuery } from 'bun-routeros';
 ```
 
-Adding an IP address to ether2, printing it, then removing it synchronously:
+### Fluent Query Builder & Type-Safe Write
+
+```typescript
+import { RouterOSAPI, rosQuery } from 'bun-routeros';
+
+interface InterfaceItem {
+    '.id': string;
+    name: string;
+    type: string;
+    disabled: string;
+}
+
+const conn = new RouterOSAPI({
+    host: '192.168.88.1',
+    user: 'admin',
+    password: '',
+});
+
+await conn.connect();
+
+// Using the fluent query builder
+const query = rosQuery('/interface/print')
+    .where('type', 'ether')
+    .whereNot('disabled', 'yes')
+    .and()
+    .proplist('.id', 'name', 'type', 'disabled')
+    .build();
+
+const interfaces = await conn.write<InterfaceItem>(query);
+console.log('Active ethernet interfaces:', interfaces);
+
+await conn.close();
+```
+
+### Streaming with Modern `for await` (AsyncIterator)
+
+```typescript
+import { RouterOSAPI } from 'bun-routeros';
+
+const conn = new RouterOSAPI({
+    host: '192.168.88.1',
+    user: 'admin',
+    password: '',
+});
+
+await conn.connect();
+
+// Stream continuous data using for await
+for await (const packet of conn.streamIterator('/tool/torch', '=interface=ether1')) {
+    console.log('Torch data:', packet);
+
+    // Break whenever you want; the stream will automatically stop cleanly
+    if (someCondition) {
+        break;
+    }
+}
+
+await conn.close();
+```
+
+### Adding an IP address to ether2, printing, and cleaning up:
 
 ```javascript
 const { RouterOSAPI } = require('bun-routeros');
@@ -44,109 +105,31 @@ const conn = new RouterOSAPI({
 conn.connect()
     .then(() => {
         // Connection successful
-
         // Let's add an IP address to ether2
-        conn.write('/ip/address/add', [
+        return conn.write('/ip/address/add', [
             '=interface=ether2',
-            '=address=192.168.90.1',
-        ])
-            .then((data) => {
-                console.log('192.168.90.1 added to ether2!', data);
-
-                // Added the ip address, let's print it
-                return conn.write('/ip/address/print', ['?.id=' + data[0].ret]);
-            })
-            .then((data) => {
-                console.log('Printing address info: ', data);
-
-                // We got the address added, let's clean it up
-                return conn.write('/ip/address/remove', [
-                    '=.id=' + data[0]['.id'],
-                ]);
-            })
-            .then((data) => {
-                console.log('192.168.90.1 as removed from ether2!', data);
-
-                // The address was removed! We are done, let's close the connection
-                conn.close();
-            })
-            .catch((err) => {
-                // Oops, got an error
-                console.log(err);
-            });
+            '=address=192.168.90.1/24',
+        ]);
+    })
+    .then((data) => {
+        console.log('192.168.90.1 added to ether2!', data);
+        // Added the ip address, let's print it
+        return conn.write('/ip/address/print', ['?.id=' + data[0].ret]);
+    })
+    .then((data) => {
+        console.log('Printing address info: ', data);
+        // We got the address added, let's clean it up
+        return conn.write('/ip/address/remove', [
+            '=.id=' + data[0]['.id'],
+        ]);
+    })
+    .then((data) => {
+        console.log('Address removed from ether2!');
+        return conn.close();
     })
     .catch((err) => {
-        // Got an error while trying to connect
-        console.log(err);
+        console.error('Error:', err);
     });
-```
-
-Listening to data from `/tool/torch` and using pause/resume/stop features:
-
-```javascript
-const { RouterOSAPI } = require("bun-routeros");
-
-const conn = new RouterOSAPI({
-    host: "192.168.88.1",
-    user: "admin",
-    password: ""
-});
-
-conn.connect().then(() => {
-    // Counter to trigger pause/resume/stop
-    let i = 0;
-
-    // The stream function returns a Stream object which can be used to pause/resume/stop the stream
-    const addressStream = conn.stream(['/tool/torch', '=interface=ether1'], (error, packet) => {
-        // If there is any error, the stream stops immediately
-        if (!error) {
-            console.log(packet);
-
-            // Increment the counter
-            i++;
-
-            // if the counter hits 30, we stop the stream
-            if (i === 30) {
-
-                // Stopping the stream will return a promise
-                addressStream.stop().then(() => {
-                    console.log('should stop');
-                    // Once stopped, you can't start it again
-                    conn.close();
-                }).catch((err) => {
-                    console.log(err);
-                });
-
-            } else if (i % 5 === 0) {
-
-                // If the counter is multiple of 5, we will pause it
-                addressStream.pause().then(() => {
-                    console.log('should be paused');
-
-                    // And after it is paused, we resume after 3 seconds
-                    setTimeout(() => {
-                        addressStream.resume().then(() => {
-                            console.log('should resume');
-                        }).catch((err) => {
-                            console.log(err);
-                        });
-                    }, 3000);
-
-                }).catch((err) => {
-                    console.log(err);
-                });
-
-            }
-
-        } else {
-            console.log(error);
-        }
-    });
-
-}).catch((err) => {
-    // Got an error while trying to connect
-    console.log(err);
-});
 ```
 
 # Development

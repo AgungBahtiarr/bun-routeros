@@ -1,18 +1,20 @@
-export const debounce = (callback, timeout = 0) => {
-    let timeoutObj = null;
+export const debounce = (
+    callback: (...args: any[]) => void,
+    timeout = 0,
+) => {
+    let timeoutObj: NodeJS.Timeout | null = null;
 
     return {
-        run: (...args: any) => {
-            const context = this;
-            clearTimeout(timeoutObj);
-            timeoutObj = setTimeout(
-                () => callback.apply(context, args),
-                timeout,
-            );
+        run: (...args: any[]) => {
+            if (timeoutObj) clearTimeout(timeoutObj);
+            timeoutObj = setTimeout(() => callback(...args), timeout);
         },
 
         cancel: () => {
-            clearTimeout(timeoutObj);
+            if (timeoutObj) {
+                clearTimeout(timeoutObj);
+                timeoutObj = null;
+            }
         },
     };
 };

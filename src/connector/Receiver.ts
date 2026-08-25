@@ -1,6 +1,7 @@
 import * as iconv from 'iconv-lite';
 import debug from 'debug';
 import { RosException } from '../RosException';
+import { RosEncoding } from './Transmitter';
 
 const info = debug('routeros-api:connector:receiver:info');
 const error = debug('routeros-api:connector:receiver:error');
@@ -33,7 +34,12 @@ export class Receiver {
     /**
      * Callback when a fatal error occurs
      */
-    private onFatalCallback: () => void;
+    private onFatalCallback?: () => void;
+
+    /**
+     * Encoding to use for decoding data
+     */
+    private encoding: RosEncoding;
 
     /**
      * The registered tags to answer data to
@@ -50,6 +56,7 @@ export class Receiver {
      * A pipe of all responses received from the routerboard
      */
     private sentencePipe: ISentence[] = [];
+    private sentencePipeIndex: number = 0;
 
     /**
      * Flag if the sentencePipe is being processed to
@@ -65,12 +72,12 @@ export class Receiver {
     /**
      * The current reply received for the tag
      */
-    private currentReply: string = '';
+    private currentReply: string | null = null;
 
     /**
      * The current tag which the routerboard responded
      */
-    private currentTag: string = '';
+    private currentTag: string | null = null;
 
     /**
      * The current data chain or packet
@@ -82,7 +89,7 @@ export class Receiver {
      * length descriptor if it gets split
      * between tcp transmissions.
      */
-    private lengthDescriptorSegment: Buffer;
+    private lengthDescriptorSegment: Buffer | null = null;
 
     /**
      * Receives the socket so we are able to read
@@ -91,10 +98,16 @@ export class Receiver {
      *
      * @param socket
      * @param onFatal
+     * @param encoding
      */
-    constructor(socket: any, onFatal?: () => void) {
+    constructor(
+        socket?: any,
+        onFatal?: () => void,
+        encoding: RosEncoding = 'win1252',
+    ) {
         this.socket = socket;
         this.onFatalCallback = onFatal;
+        this.encoding = encoding;
     }
 
     /**
@@ -128,6 +141,16 @@ export class Receiver {
     }
 
     /**
+     * Decode a buffer segment according to the configured encoding
+     */
+    private decodeBuffer(buf: Buffer): string {
+        if (this.encoding === 'utf-8') {
+            return buf.toString('utf-8');
+        }
+        return iconv.decode(buf, this.encoding || 'win1252');
+    }
+
+    /**
      * Proccess the raw buffer data received from the routerboard,
      * decode using win1252 encoded string from the routerboard to
      * utf-8, so languages with accentuation works out of the box.
@@ -155,7 +178,7 @@ export class Receiver {
                     this.dataLength -= data.length;
 
                     // Add this data to our current line
-                    this.currentLine += iconv.decode(data, 'win1252');
+                    this.currentLine += this.decodeBuffer(data);
 
                     // If there is no more desired data we want...
                     if (this.dataLength === 0) {
@@ -177,10 +200,10 @@ export class Receiver {
                     // If we have more data than we desire...
                 } else {
                     // slice off the part that we desire
-                    const tmpBuffer = data.slice(0, this.dataLength);
+                    const tmpBuffer = data.subarray(0, this.dataLength);
 
                     // decode this segment
-                    const tmpStr = iconv.decode(tmpBuffer, 'win1252');
+                    const tmpStr = this.decodeBuffer(tmpBuffer);
 
                     // Add this to our current line
                     this.currentLine += tmpStr;
@@ -192,7 +215,7 @@ export class Receiver {
                     this.currentLine = '';
 
                     // cut off the line we just pulled out
-                    data = data.slice(this.dataLength);
+                    data = data.subarray(this.dataLength);
 
                     // determine the length of the next word. This method also
                     // returns the number of bytes it took to describe the length
@@ -209,12 +232,12 @@ export class Receiver {
                     this.dataLength = length;
 
                     // slice off the bytes used to describe the length
-                    data = data.slice(descriptor_length);
+                    data = data.subarray(descriptor_length);
 
                     // If we only desire one more and its the end of the sentance...
                     if (this.dataLength === 1 && data.equals(nullBuffer)) {
                         this.dataLength = 0;
-                        data = data.slice(1); // get rid of excess buffer
+                        data = data.subarray(1); // get rid of excess buffer
                     }
                     this.sentencePipe.push({
                         sentence: line,
@@ -233,11 +256,11 @@ export class Receiver {
                 this.dataLength = length;
 
                 // slice off the bytes used to describe the length
-                data = data.slice(descriptor_length);
+                data = data.subarray(descriptor_length);
 
                 if (this.dataLength === 1 && data.equals(nullBuffer)) {
                     this.dataLength = 0;
-                    data = data.slice(1); // get rid of excess buffer
+                    data = data.subarray(1); // get rid of excess buffer
                 }
             }
         }
@@ -252,61 +275,62 @@ export class Receiver {
      *
      */
     private processSentence(): void {
-        if (!this.processingSentencePipe) {
-            info('Got asked to process sentence pipe');
+        if (this.processingSentencePipe) return;
 
-            this.processingSentencePipe = true;
+        info('Got asked to process sentence pipe');
+        this.processingSentencePipe = true;
 
-            const process = () => {
-                if (this.sentencePipe.length > 0) {
-                    const line = this.sentencePipe.shift();
+        try {
+            while (this.sentencePipeIndex < this.sentencePipe.length) {
+                const line = this.sentencePipe[this.sentencePipeIndex++];
 
-                    if (!line.hadMore && this.currentReply === '!fatal') {
-                        if (this.onFatalCallback) this.onFatalCallback();
-                        return;
-                    }
-
-                    info('Processing line %s', line.sentence);
-
-                    if (/^\.tag=/.test(line.sentence)) {
-                        this.currentTag = line.sentence.substring(5);
-                    } else if (/^!/.test(line.sentence)) {
-                        if (this.currentTag) {
-                            info(
-                                'Received another response, sending current data to tag %s',
-                                this.currentTag,
-                            );
-                            this.sendTagData(this.currentTag);
-                        }
-                        this.currentPacket.push(line.sentence);
-                        this.currentReply = line.sentence;
-                    } else {
-                        this.currentPacket.push(line.sentence);
-                    }
-
-                    if (
-                        this.sentencePipe.length === 0 &&
-                        this.dataLength === 0
-                    ) {
-                        if (!line.hadMore && this.currentTag) {
-                            info(
-                                'No more sentences to process, will send data to tag %s',
-                                this.currentTag,
-                            );
-                            this.sendTagData(this.currentTag);
-                        } else {
-                            info('No more sentences and no data to send');
-                        }
-                        this.processingSentencePipe = false;
-                    } else {
-                        process();
-                    }
-                } else {
-                    this.processingSentencePipe = false;
+                if (!line.hadMore && this.currentReply === '!fatal') {
+                    if (this.onFatalCallback) this.onFatalCallback();
+                    return;
                 }
-            };
 
-            process();
+                info('Processing line %s', line.sentence);
+
+                if (line.sentence.startsWith('.tag=')) {
+                    this.currentTag = line.sentence.substring(5);
+                } else if (line.sentence.startsWith('!')) {
+                    if (this.currentTag) {
+                        info(
+                            'Received another response, sending current data to tag %s',
+                            this.currentTag,
+                        );
+                        this.sendTagData(this.currentTag);
+                    }
+                    this.currentPacket.push(line.sentence);
+                    this.currentReply = line.sentence;
+                } else {
+                    this.currentPacket.push(line.sentence);
+                }
+
+                if (
+                    this.sentencePipeIndex >= this.sentencePipe.length &&
+                    this.dataLength === 0
+                ) {
+                    if (!line.hadMore && this.currentTag) {
+                        info(
+                            'No more sentences to process, will send data to tag %s',
+                            this.currentTag,
+                        );
+                        this.sendTagData(this.currentTag);
+                    } else {
+                        info('No more sentences and no data to send');
+                    }
+                    this.sentencePipe = [];
+                    this.sentencePipeIndex = 0;
+                    break;
+                }
+            }
+        } finally {
+            if (this.sentencePipeIndex >= this.sentencePipe.length) {
+                this.sentencePipe = [];
+                this.sentencePipeIndex = 0;
+            }
+            this.processingSentencePipe = false;
         }
     }
 
@@ -347,30 +371,26 @@ export class Receiver {
      *
      * @param {Buffer} data
      */
-    private decodeLength(data: Buffer): number[] {
-        let len;
+    private decodeLength(data: Buffer): [number, number] {
+        let len: number;
         let idx = 0;
         const b = data[idx++];
 
         if (b & 128) {
             if ((b & 192) === 128) {
                 len = ((b & 63) << 8) + data[idx++];
+            } else if ((b & 224) === 192) {
+                len = ((b & 31) << 8) + data[idx++];
+                len = (len << 8) + data[idx++];
+            } else if ((b & 240) === 224) {
+                len = ((b & 15) << 8) + data[idx++];
+                len = (len << 8) + data[idx++];
+                len = (len << 8) + data[idx++];
             } else {
-                if ((b & 224) === 192) {
-                    len = ((b & 31) << 8) + data[idx++];
-                    len = (len << 8) + data[idx++];
-                } else {
-                    if ((b & 240) === 224) {
-                        len = ((b & 15) << 8) + data[idx++];
-                        len = (len << 8) + data[idx++];
-                        len = (len << 8) + data[idx++];
-                    } else {
-                        len = data[idx++];
-                        len = (len << 8) + data[idx++];
-                        len = (len << 8) + data[idx++];
-                        len = (len << 8) + data[idx++];
-                    }
-                }
+                len = data[idx++];
+                len = (len << 8) + data[idx++];
+                len = (len << 8) + data[idx++];
+                len = (len << 8) + data[idx++];
             }
         } else {
             len = b;

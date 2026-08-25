@@ -10,6 +10,7 @@ export interface IRosOptions {
     password?: string;
     port?: number;
     timeout?: number;
-    tls?: TlsOptions;
+    tls?: boolean | TlsOptions;
     keepalive?: boolean;
+    encoding?: 'utf-8' | 'win1252' | string;
 }

@@ -17,7 +17,7 @@ export class RosException extends Error {
         // Custom debugging information
         this.errno = errno;
 
-        let message = messages[errno];
+        let message = (messages as Record<string, string>)[errno];
 
         if (message) {
             for (const key in extras) {

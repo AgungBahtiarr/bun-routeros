@@ -7,3 +7,4 @@ export * from './Channel';
 export * from './IRosOptions';
 export * from './RosException';
 export * from './RStream';
+export * from './query';

@@ -11,7 +11,7 @@ import { debounce } from './utils';
  * It is also possible to pause/resume/stop generated
  * streams.
  */
-export class RStream extends EventEmitter {
+export class RStream<T = any> extends EventEmitter implements AsyncIterable<T> {
     /**
      * Main channel of the stream
      */
@@ -29,7 +29,7 @@ export class RStream extends EventEmitter {
      * if any, or the packet received from the
      * command
      */
-    private callback: (err: Error, packet?: any, stream?: RStream) => void;
+    private callback: ((err: Error | null, packet?: any, stream?: RStream<T>) => void) | null;
 
     /**
      * The function that will send empty data
@@ -73,7 +73,7 @@ export class RStream extends EventEmitter {
     /**
      * Save the current section of the packet, if has any
      */
-    private currentSection: string = null;
+    private currentSection: string | null = null;
 
     private forcelyStop: boolean = false;
 
@@ -86,7 +86,16 @@ export class RStream extends EventEmitter {
     /**
      * Waiting timeout before sending received section packets
      */
-    private sectionPacketSendingTimeout: NodeJS.Timeout;
+    private sectionPacketSendingTimeout?: NodeJS.Timeout;
+
+    /**
+     * Queue and resolvers for AsyncIterator support
+     */
+    private asyncQueue: T[] = [];
+    private asyncResolvers: Array<(result: IteratorResult<T>) => void> = [];
+    private asyncRejecters: Array<(err: Error) => void> = [];
+    private asyncClosed: boolean = false;
+    private asyncError: Error | null = null;
 
     /**
      * Constructor, it also starts the streaming after construction
@@ -98,12 +107,12 @@ export class RStream extends EventEmitter {
     constructor(
         channel: Channel,
         params: string[],
-        callback?: (err: Error, packet?: any, stream?: RStream) => void,
+        callback?: (err: Error | null, packet?: any, stream?: RStream<T>) => void,
     ) {
         super();
         this.channel = channel;
         this.params = params;
-        this.callback = callback;
+        this.callback = callback || null;
     }
 
     /**
@@ -115,7 +124,7 @@ export class RStream extends EventEmitter {
      * @param {function} callback
      */
     public data(
-        callback: (err: Error, packet?: any, stream?: RStream) => void,
+        callback: (err: Error | null, packet?: any, stream?: RStream<T>) => void,
     ): void {
         this.callback = callback;
     }
@@ -180,6 +189,7 @@ export class RStream extends EventEmitter {
             this.streaming = false;
             this.stopping = false;
             this.stopped = true;
+            this.drainAsyncResolvers();
             if (this.channel) this.channel.close(true);
             return Promise.resolve();
         }
@@ -188,7 +198,7 @@ export class RStream extends EventEmitter {
 
         let chann = new Channel(this.channel.Connector);
         chann.on('close', () => {
-            chann = null;
+            chann = null as any;
         });
 
         if (this.debounceSendingEmptyData)
@@ -201,6 +211,7 @@ export class RStream extends EventEmitter {
                 if (!this.pausing) {
                     this.stopping = false;
                     this.stopped = true;
+                    this.drainAsyncResolvers();
                 }
                 this.emit('stopped');
                 return Promise.resolve();
@@ -226,6 +237,7 @@ export class RStream extends EventEmitter {
                 if (this.forcelyStop || (!this.pausing && !this.paused)) {
                     if (!this.trapped) this.emit('done');
                     this.emit('close');
+                    this.drainAsyncResolvers();
                 }
                 this.stopped = false;
             });
@@ -247,7 +259,7 @@ export class RStream extends EventEmitter {
         }
     }
 
-    public prepareDebounceEmptyData() {
+    public prepareDebounceEmptyData(): void {
         this.shouldDebounceEmptyData = true;
 
         const intervalParam = this.params.find((param) => {
@@ -257,7 +269,7 @@ export class RStream extends EventEmitter {
         let interval = 2000;
         if (intervalParam) {
             const val = intervalParam.split('=')[2];
-            interval = parseInt(val, null) * 1000;
+            interval = parseInt(val, 10) * 1000;
         }
 
         this.debounceSendingEmptyData = debounce(() => {
@@ -267,7 +279,7 @@ export class RStream extends EventEmitter {
                 !this.paused ||
                 !this.pausing
             ) {
-                this.onStream([]);
+                this.onStream([] as any);
                 this.debounceSendingEmptyData.run();
             }
         }, interval + 300);
@@ -275,22 +287,35 @@ export class RStream extends EventEmitter {
 
     /**
      * When receiving the stream packet, give it to
-     * the callback
+     * the callback, listeners, and async iterator queue
      *
-     * @returns {function}
+     * @param packet
      */
     private onStream(packet: any): void {
         this.emit('data', packet);
+
+        if (this.asyncResolvers.length > 0) {
+            const resolver = this.asyncResolvers.shift()!;
+            this.asyncRejecters.shift();
+            resolver({ value: packet, done: false });
+        } else {
+            this.asyncQueue.push(packet);
+        }
+
         if (this.callback) {
             if (packet['.section']) {
-                clearTimeout(this.sectionPacketSendingTimeout);
+                if (this.sectionPacketSendingTimeout) {
+                    clearTimeout(this.sectionPacketSendingTimeout);
+                }
 
                 const sendData = () => {
-                    this.callback(
-                        null,
-                        this.currentSectionPacket.slice(),
-                        this,
-                    );
+                    if (this.callback) {
+                        this.callback(
+                            null,
+                            this.currentSectionPacket.slice(),
+                            this,
+                        );
+                    }
                     this.currentSectionPacket = [];
                 };
 
@@ -321,7 +346,7 @@ export class RStream extends EventEmitter {
      * this will not be considered as an error but a flag
      * for the pause and resume function
      *
-     * @returns {function}
+     * @param data
      */
     private onTrap(data: any): void {
         if (data.message === 'interrupted') {
@@ -329,8 +354,15 @@ export class RStream extends EventEmitter {
         } else {
             this.stopped = true;
             this.trapped = true;
+            const err = new Error(data.message);
+            this.asyncError = err;
+            if (this.asyncRejecters.length > 0) {
+                const rejecter = this.asyncRejecters.shift()!;
+                this.asyncResolvers.shift();
+                rejecter(err);
+            }
             if (this.callback) {
-                this.callback(new Error(data.message), null, this);
+                this.callback(err, null, this);
             } else {
                 this.emit('error', data);
             }
@@ -342,12 +374,60 @@ export class RStream extends EventEmitter {
      * When the channel stops sending data.
      * It will close the channel if the
      * intention was stopping it.
-     *
-     * @returns {function}
      */
     private onDone(): void {
+        this.drainAsyncResolvers();
         if (this.stopped && this.channel) {
             this.channel.close(true);
         }
+    }
+
+    private drainAsyncResolvers(): void {
+        this.asyncClosed = true;
+        while (this.asyncResolvers.length > 0) {
+            const resolver = this.asyncResolvers.shift()!;
+            this.asyncRejecters.shift();
+            resolver({ value: undefined as any, done: true });
+        }
+    }
+
+    /**
+     * Supports `for await (const packet of stream)` iteration
+     */
+    public [Symbol.asyncIterator](): AsyncIterableIterator<T> {
+        return {
+            next: (): Promise<IteratorResult<T>> => {
+                if (this.asyncQueue.length > 0) {
+                    const value = this.asyncQueue.shift()!;
+                    return Promise.resolve({ value, done: false });
+                }
+
+                if (this.asyncError) {
+                    const err = this.asyncError;
+                    this.asyncError = null;
+                    return Promise.reject(err);
+                }
+
+                if (this.stopped || this.asyncClosed) {
+                    return Promise.resolve({
+                        value: undefined as any,
+                        done: true,
+                    });
+                }
+
+                return new Promise<IteratorResult<T>>((resolve, reject) => {
+                    this.asyncResolvers.push(resolve);
+                    this.asyncRejecters.push(reject);
+                });
+            },
+            return: async (): Promise<IteratorResult<T>> => {
+                await this.stop();
+                this.drainAsyncResolvers();
+                return { value: undefined as any, done: true };
+            },
+            [Symbol.asyncIterator]() {
+                return this;
+            },
+        };
     }
 }

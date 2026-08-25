@@ -19,32 +19,37 @@ export class RouterOSAPI extends EventEmitter {
     /**
      * Host to connect
      */
-    public host: string;
+    public host: string = '';
 
     /**
      * Username to use
      */
-    public user: string;
+    public user: string = '';
 
     /**
      * Password of the username
      */
-    public password: string;
+    public password: string = '';
 
     /**
      * Port of the API
      */
-    public port: number;
+    public port: number = 8728;
 
     /**
      * Timeout of the connection
      */
-    public timeout: number;
+    public timeout: number = 10;
 
     /**
      * TLS Options to use, if any
      */
-    public tls: TlsOptions;
+    public tls?: boolean | TlsOptions;
+
+    /**
+     * Encoding to use for communication
+     */
+    public encoding: string = 'win1252';
 
     /**
      * Connected flag
@@ -64,17 +69,17 @@ export class RouterOSAPI extends EventEmitter {
     /**
      * Keep connection alive
      */
-    public keepalive: boolean;
+    public keepalive: boolean = false;
 
     /**
      * The connector which will be used
      */
-    private connector: Connector;
+    private connector?: Connector;
 
     /**
      * The function timeout that will keep the connection alive
      */
-    private keptaliveby: NodeJS.Timeout;
+    private keptaliveby?: NodeJS.Timeout;
 
     /**
      * Counter for channels open
@@ -91,7 +96,7 @@ export class RouterOSAPI extends EventEmitter {
      * Store the timeout when holding the connection
      * when waiting for a channel response
      */
-    private connectionHoldInterval: NodeJS.Timeout;
+    private connectionHoldInterval?: NodeJS.Timeout;
 
     private registeredStreams: RStream[] = [];
 
@@ -112,12 +117,13 @@ export class RouterOSAPI extends EventEmitter {
      */
     public setOptions(options: IRosOptions): void {
         this.host = options.host;
-        this.user = options.user;
-        this.password = options.password;
-        this.port = options.port || 8728;
-        this.timeout = options.timeout || 10;
+        this.user = options.user ?? '';
+        this.password = options.password ?? '';
+        this.port = options.port || (options.tls ? 8729 : 8728);
+        this.timeout = options.timeout ?? 10;
         this.tls = options.tls;
-        this.keepalive = options.keepalive || false;
+        this.keepalive = options.keepalive ?? false;
+        this.encoding = options.encoding || 'win1252';
     }
 
     /**
@@ -134,12 +140,14 @@ export class RouterOSAPI extends EventEmitter {
         this.connecting = true;
         this.connected = false;
 
-        this.connector = new Connector({
+        const connector = new Connector({
             host: this.host,
             port: this.port,
             timeout: this.timeout,
             tls: this.tls,
+            encoding: this.encoding,
         });
+        this.connector = connector;
 
         return new Promise((resolve, reject) => {
             const endListener = (e?: Error) => {
@@ -149,21 +157,21 @@ export class RouterOSAPI extends EventEmitter {
                 if (e) reject(e);
             };
 
-            this.connector.once('error', endListener);
-            this.connector.once('timeout', endListener);
-            this.connector.once('close', () => {
+            connector.once('error', endListener);
+            connector.once('timeout', endListener);
+            connector.once('close', () => {
                 this.emit('close');
                 endListener();
             });
 
-            this.connector.once('connected', () => {
+            connector.once('connected', () => {
                 this.login()
                     .then(() => {
                         this.connecting = false;
                         this.connected = true;
 
-                        this.connector.removeListener('error', endListener);
-                        this.connector.removeListener('timeout', endListener);
+                        connector.removeListener('error', endListener);
+                        connector.removeListener('timeout', endListener);
 
                         const connectedErrorListener = (e: Error) => {
                             this.connected = false;
@@ -171,8 +179,8 @@ export class RouterOSAPI extends EventEmitter {
                             this.emit('error', e);
                         };
 
-                        this.connector.once('error', connectedErrorListener);
-                        this.connector.once('timeout', connectedErrorListener);
+                        connector.once('error', connectedErrorListener);
+                        connector.once('timeout', connectedErrorListener);
 
                         if (this.keepalive) this.keepaliveBy('#');
 
@@ -187,7 +195,7 @@ export class RouterOSAPI extends EventEmitter {
                     });
             });
 
-            this.connector.connect();
+            connector.connect();
         });
     }
 
@@ -199,20 +207,20 @@ export class RouterOSAPI extends EventEmitter {
      * @param {Array<string|string[]>} moreParams
      * @returns {Promise}
      */
-    public write(
+    public write<T = IRosGenericResponse>(
         params: string | string[],
         ...moreParams: Array<string | string[]>
-    ): Promise<IRosGenericResponse[]> {
+    ): Promise<T[]> {
         params = this.concatParams(params, moreParams);
         let chann = this.openChannel();
         this.holdConnection();
 
         chann.once('close', () => {
-            chann = null; // putting garbage collector to work :]
+            chann = null as any; // putting garbage collector to work :]
             this.decreaseChannelsOpen();
             this.releaseConnectionHold();
         });
-        return chann.write(params);
+        return chann.write<T>(params);
     }
 
     /**
@@ -225,12 +233,12 @@ export class RouterOSAPI extends EventEmitter {
      * @param {Array<string|string[]>} moreParams
      * @returns {RStream}
      */
-    public writeStream(
+    public writeStream<T = IRosGenericResponse>(
         params: string | string[],
         ...moreParams: Array<string | string[]>
-    ): RStream {
+    ): RStream<T> {
         params = this.concatParams(params, moreParams);
-        const stream = new RStream(this.openChannel(), params);
+        const stream = new RStream<T>(this.openChannel(), params);
 
         stream.on('started', () => {
             this.holdConnection();
@@ -257,17 +265,17 @@ export class RouterOSAPI extends EventEmitter {
      * @param {function} callback
      * @returns {RStream}
      */
-    public stream(
+    public stream<T = IRosGenericResponse>(
         params: string | string[] = [],
         ...moreParams: any[]
-    ): RStream {
+    ): RStream<T> {
         let callback = moreParams.pop();
         if (typeof callback !== 'function') {
             if (callback) moreParams.push(callback);
             callback = null;
         }
         params = this.concatParams(params, moreParams);
-        const stream = new RStream(this.openChannel(), params, callback);
+        const stream = new RStream<T>(this.openChannel(), params, callback);
 
         stream.on('started', () => {
             this.holdConnection();
@@ -286,6 +294,22 @@ export class RouterOSAPI extends EventEmitter {
         this.registerStream(stream);
 
         return stream;
+    }
+
+    /**
+     * Returns an AsyncIterableIterator for consuming continuous data stream
+     * with `for await (const packet of conn.streamIterator(...))`
+     *
+     * @param {string|Array} params
+     * @param {Array} moreParams
+     * @returns {AsyncIterableIterator}
+     */
+    public streamIterator<T = IRosGenericResponse>(
+        params: string | string[] = [],
+        ...moreParams: any[]
+    ): AsyncIterableIterator<T> {
+        const stream = this.stream<T>(params, ...moreParams);
+        return stream[Symbol.asyncIterator]();
     }
 
     /**
@@ -357,9 +381,15 @@ export class RouterOSAPI extends EventEmitter {
 
         return new Promise((resolve) => {
             this.closing = true;
+            if (!this.connector) {
+                this.closing = false;
+                this.connected = false;
+                resolve(this);
+                return;
+            }
             this.connector.once('close', () => {
-                this.connector.destroy();
-                this.connector = null;
+                this.connector?.destroy();
+                this.connector = undefined;
                 this.closing = false;
                 this.connected = false;
                 resolve(this);
@@ -374,6 +404,9 @@ export class RouterOSAPI extends EventEmitter {
      * @returns {Channel}
      */
     private openChannel(): Channel {
+        if (!this.connector) {
+            throw new RosException('ECONNRESET');
+        }
         this.increaseChannelsOpen();
         return new Channel(this.connector);
     }
@@ -417,7 +450,8 @@ export class RouterOSAPI extends EventEmitter {
                 clearTimeout(this.connectionHoldInterval);
             const holdConnInterval = () => {
                 this.connectionHoldInterval = setTimeout(() => {
-                    let chann = new Channel(this.connector);
+                    if (!this.connector) return;
+                    let chann: Channel | null = new Channel(this.connector);
                     chann.on('close', () => {
                         chann = null;
                     });
@@ -518,7 +552,7 @@ export class RouterOSAPI extends EventEmitter {
                             ) {
                                 err = new RosException('CANTLOGIN');
                             }
-                            this.connector.destroy();
+                            if (this.connector) this.connector.destroy();
                             error(
                                 "Couldn't loggin onto %s, Error: %O",
                                 this.host,
@@ -532,7 +566,7 @@ export class RouterOSAPI extends EventEmitter {
                     this.host,
                     data,
                 );
-                Promise.reject(new RosException('CANTLOGIN'));
+                return Promise.reject(new RosException('CANTLOGIN'));
             })
             .catch((err: Error) => {
                 if (
@@ -541,7 +575,7 @@ export class RouterOSAPI extends EventEmitter {
                 ) {
                     err = new RosException('CANTLOGIN');
                 }
-                this.connector.destroy();
+                if (this.connector) this.connector.destroy();
                 error("Couldn't loggin onto %s, Error: %O", this.host, err);
                 return Promise.reject(err);
             });

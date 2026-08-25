@@ -84,4 +84,29 @@ describe('Receiver', () => {
         rec.processRawData(payload_b);
         rec.processRawData(payload_c);
     });
+
+    it('should support UTF-8 encoding and decoding', (done) => {
+        const utf8Rec = new Receiver(null, undefined, 'utf-8');
+        const utf8Trans = new Transmitter(null, 'utf-8');
+
+        const unicodeData = 'MikroTik Router ⚡ Jakarta (ID 🇮🇩)';
+
+        let segments = [];
+        segments.push(utf8Trans.encodeString('!re'));
+        segments.push(utf8Trans.encodeString('.tag=utf8tag'));
+        segments.push(utf8Trans.encodeString(`=comment=${unicodeData}`));
+        segments.push(Buffer.from([0x00]));
+
+        const buff = Buffer.concat(segments);
+
+        utf8Rec.read('utf8tag', (data) => {
+            expect(data.length).to.be.equal(2);
+            expect(data[0]).to.be.equal('!re');
+            expect(data[1]).to.be.equal(`=comment=${unicodeData}`);
+            done();
+        });
+
+        utf8Rec.processRawData(buff);
+    });
 });
+

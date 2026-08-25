@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { Receiver } from './Receiver';
-import { Transmitter } from './Transmitter';
+import { Transmitter, RosEncoding } from './Transmitter';
 import { RosException } from '../RosException';
 import debug from 'debug';
 
@@ -20,17 +20,17 @@ export class Connector extends EventEmitter {
     /**
      * The host or address of where to connect to
      */
-    public host: string;
+    public host: string = '';
 
     /**
      * The port of the API
      */
-    public port: number;
+    public port: number = 8728;
 
     /**
      * The timeout in seconds of the connection
      */
-    public timeout: number;
+    public timeout: number = 10;
 
     /**
      * The socket of the connection
@@ -40,12 +40,12 @@ export class Connector extends EventEmitter {
     /**
      * The transmitter object to write commands
      */
-    private transmitter: Transmitter;
+    private transmitter?: Transmitter;
 
     /**
      * The receiver object to read commands
      */
-    private receiver: Receiver;
+    private receiver?: Receiver;
 
     /**
      * Connected status
@@ -65,12 +65,17 @@ export class Connector extends EventEmitter {
     /**
      * Connect timer to abort connection if it takes too long
      */
-    private connectTimer: NodeJS.Timeout;
+    private connectTimer: NodeJS.Timeout | null = null;
 
     /**
      * TLS data
      */
     private tls: any;
+
+    /**
+     * Encoding to use
+     */
+    public encoding: RosEncoding = 'win1252';
 
     /**
      * Constructor which receive the options of the connection
@@ -83,8 +88,9 @@ export class Connector extends EventEmitter {
         this.host = options.host;
         if (options.timeout) this.timeout = options.timeout;
         if (options.port) this.port = options.port;
+        if (options.encoding) this.encoding = options.encoding;
         if (typeof options.tls === 'boolean' && options.tls) options.tls = {};
-        if (typeof options.tls === 'object') {
+        if (typeof options.tls === 'object' && options.tls !== null) {
             if (!options.port) this.port = 8729;
             this.tls = options.tls;
         }
@@ -101,9 +107,9 @@ export class Connector extends EventEmitter {
                 this.connecting = true;
                 this.connectTimer = setTimeout(() => {
                     if (this.connecting) {
-                        const err = new Error('connect SOCKTMOUT');
-                        err['code'] = 'SOCKTMOUT';
-                        err['errno'] = 'SOCKTMOUT';
+                        const err: any = new Error('connect SOCKTMOUT');
+                        err.code = 'SOCKTMOUT';
+                        err.errno = 'SOCKTMOUT';
                         this.onError(err);
                     }
                 }, this.timeout * 1000);
@@ -115,12 +121,24 @@ export class Connector extends EventEmitter {
                         open: (socket: any) => {
                             socket.writable = true;
                             this.socket = socket;
-                            this.transmitter = new Transmitter(this.socket);
-                            this.receiver = new Receiver(this.socket, () => this.onEnd());
+                            this.transmitter = new Transmitter(
+                                this.socket,
+                                this.encoding,
+                            );
+                            this.receiver = new Receiver(
+                                this.socket,
+                                () => this.onEnd(),
+                                this.encoding,
+                            );
                             this.onConnect();
                         },
                         data: (socket: any, data: Buffer) => {
                             this.onData(data);
+                        },
+                        drain: (socket: any) => {
+                            if (this.transmitter) {
+                                this.transmitter.runPool();
+                            }
                         },
                         close: (socket: any) => {
                             if (this.socket) this.socket.writable = false;
@@ -140,17 +158,19 @@ export class Connector extends EventEmitter {
                         },
                         timeout: (socket: any) => {
                             this.onTimeout();
-                        }
-                    }
+                        },
+                    },
                 };
 
                 if (this.tls) {
                     socketOptions.tls = this.tls;
                 }
 
-                (globalThis as any).Bun.connect(socketOptions).catch((err: any) => {
-                    this.onError(err);
-                });
+                (globalThis as any).Bun.connect(socketOptions).catch(
+                    (err: any) => {
+                        this.onError(err);
+                    },
+                );
             }
         }
         return this;
@@ -163,10 +183,12 @@ export class Connector extends EventEmitter {
      * @returns {Connector}
      */
     public write(data: string[]): Connector {
-        for (const line of data) {
-            this.transmitter.write(line);
+        if (this.transmitter) {
+            for (const line of data) {
+                this.transmitter.write(line);
+            }
+            this.transmitter.write(null);
         }
-        this.transmitter.write(null);
         return this;
     }
 
@@ -177,7 +199,9 @@ export class Connector extends EventEmitter {
      * @param {function} callback
      */
     public read(tag: string, callback: (packet: string[]) => void): void {
-        this.receiver.read(tag, callback);
+        if (this.receiver) {
+            this.receiver.read(tag, callback);
+        }
     }
 
     /**
@@ -185,7 +209,9 @@ export class Connector extends EventEmitter {
      * @param {string} tag
      */
     public stopRead(tag: string): void {
-        this.receiver.stop(tag);
+        if (this.receiver) {
+            this.receiver.stop(tag);
+        }
     }
 
     /**
@@ -235,7 +261,9 @@ export class Connector extends EventEmitter {
             this.socket.timeout(this.timeout * 1000);
         }
         info('Connected on %s', this.host);
-        this.transmitter.runPool();
+        if (this.transmitter) {
+            this.transmitter.runPool();
+        }
         this.emit('connected', this);
     }
 
@@ -298,6 +326,8 @@ export class Connector extends EventEmitter {
      */
     private onData(data: Buffer): void {
         info('Got data from the socket, will process it');
-        this.receiver.processRawData(data);
+        if (this.receiver) {
+            this.receiver.processRawData(data);
+        }
     }
 }

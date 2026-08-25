@@ -7,6 +7,8 @@ import { IRosGenericResponse } from './IRosGenericResponse';
 const info = debug('routeros-api:channel:info');
 const error = debug('routeros-api:channel:error');
 
+let channelCounter = 0;
+
 /**
  * Channel class is responsible for generating
  * ids for the channels and writing over
@@ -46,7 +48,7 @@ export class Channel extends EventEmitter {
      */
     constructor(connector: Connector) {
         super();
-        this.id = Math.random().toString(36).substring(3);
+        this.id = String(++channelCounter);
         this.connector = connector;
         this.once('unknown', this.onUnknown.bind(this));
     }
@@ -75,13 +77,15 @@ export class Channel extends EventEmitter {
      * the data.
      *
      * @param {Array} params
+     * @param {boolean} isStream
+     * @param {boolean} returnPromise
      * @returns {Promise}
      */
-    public write(
+    public write<T = IRosGenericResponse>(
         params: string[],
         isStream = false,
         returnPromise = true,
-    ): Promise<IRosGenericResponse[]> {
+    ): Promise<T[]> {
         this.streaming = isStream;
 
         params.push('.tag=' + this.id);
@@ -89,7 +93,7 @@ export class Channel extends EventEmitter {
         if (returnPromise) {
             this.on('data', (packet: object) => this.data.push(packet));
 
-            return new Promise((resolve, reject) => {
+            return new Promise<T[]>((resolve, reject) => {
                 this.once('done', (data) => resolve(data));
                 this.once('trap', (data) => reject(new Error(data.message)));
 
@@ -97,11 +101,11 @@ export class Channel extends EventEmitter {
             });
         }
         this.readAndWrite(params);
-        return;
+        return Promise.resolve([] as T[]);
     }
 
     /**
-     * Closes the channel, algo asking for
+     * Closes the channel, also asking for
      * the connector to remove the reader.
      * If streaming, not forcing will only stop
      * the reader, not the listeners of the events
@@ -177,12 +181,25 @@ export class Channel extends EventEmitter {
      * @param {Array} packet
      * @return {Object}
      */
-    private parsePacket(packet: string[]): object {
-        const obj = {};
+    private parsePacket(packet: string[]): Record<string, string> {
+        const obj: Record<string, string> = {};
         for (const line of packet) {
-            const linePair = line.split('=');
-            linePair.shift(); // remove empty index
-            obj[linePair.shift()] = linePair.join('=');
+            if (line.charCodeAt(0) === 61) {
+                // Starts with '='
+                const eqIdx = line.indexOf('=', 1);
+                if (eqIdx !== -1) {
+                    obj[line.substring(1, eqIdx)] = line.substring(eqIdx + 1);
+                } else {
+                    obj[line.substring(1)] = '';
+                }
+            } else {
+                const eqIdx = line.indexOf('=');
+                if (eqIdx !== -1) {
+                    obj[line.substring(0, eqIdx)] = line.substring(eqIdx + 1);
+                } else {
+                    obj[line] = '';
+                }
+            }
         }
         info('Parsed line, got %o as result', obj);
         return obj;
